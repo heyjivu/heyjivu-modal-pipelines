@@ -1,5 +1,5 @@
 """
-AuraDesk Modal Smart Video & AI Video Assembly Pipeline
+heyjivu Modal Smart Video & AI Video Assembly Pipeline
 App Name: aura-smart-video-pipeline
 
 Async dispatch: receives a payload, processes via FFmpeg on GPU,
@@ -20,14 +20,14 @@ image = (
     modal.Image.debian_slim(python_version="3.11")
     .apt_install("ffmpeg", "fonts-dejavu-core")
     .pip_install("boto3", "botocore", "httpx", "fastapi[standard]")
-    .copy_local_dir("./modal_common", "/root/modal_common")
+        .add_local_dir("./modal_common", "/root/modal_common")
 )
 
 nvidia_image = (
     modal.Image.from_registry("nvidia/cuda:12.1.1-devel-ubuntu22.04", add_python="3.11")
     .apt_install("ffmpeg", "fonts-dejavu-core")
     .pip_install("boto3", "botocore", "httpx", "fastapi[standard]")
-    .copy_local_dir("./modal_common", "/root/modal_common")
+        .add_local_dir("./modal_common", "/root/modal_common")
 )
 
 app = modal.App("aura-smart-video-pipeline", image=image)
@@ -292,3 +292,4 @@ def dispatch(body: dict, request: fastapi.Request):
         return {"error": f"Unknown step: {step_name}"}
     fn.spawn(body)
     return {"dispatched": True}
+

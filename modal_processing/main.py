@@ -1,5 +1,5 @@
 """
-AuraDesk Modal Raw Video Processing Pipeline
+heyjivu Modal Raw Video Processing Pipeline
 App Name: aura-processing-pipeline
 
 Consolidated dispatch: 2 calls per video instead of 17.
@@ -22,14 +22,14 @@ image = (
     modal.Image.debian_slim(python_version="3.11")
     .apt_install("ffmpeg", "fonts-dejavu-core")
     .pip_install("fastapi", "boto3", "botocore", "httpx")
-    .copy_local_dir("./modal_common", "/root/modal_common")
+        .add_local_dir("./modal_common", "/root/modal_common")
 )
 
 nvidia_image = (
     modal.Image.from_registry("nvidia/cuda:12.1.1-devel-ubuntu22.04", add_python="3.11")
     .apt_install("ffmpeg", "fonts-dejavu-core")
     .pip_install("fastapi", "boto3", "botocore", "httpx")
-    .copy_local_dir("./modal_common", "/root/modal_common")
+        .add_local_dir("./modal_common", "/root/modal_common")
 )
 
 app = modal.App("aura-processing-pipeline", image=image)
@@ -255,14 +255,29 @@ def render_all(payload: dict):
                 end = float(seg.get("end", 15))
                 dur = end - start
                 short_path = os.path.join(tmpdir, f"short_{idx+1}.mp4").replace("\\", "/")
+                short_filter = f"scale={sw}:{sh}:force_original_aspect_ratio=increase,crop={sw}:{sh},setsar=1,format=yuv420p"
                 cmd = [
                     "ffmpeg", "-y", "-ss", f"{start:.3f}", "-t", f"{dur:.3f}",
                     "-i", input_path,
-                    "-vf", f"scale={sw}:{sh}:force_original_aspect_ratio=increase,pad={sw}:{sh}:(ow-iw)/2:(oh-ih)/2,setsar=1",
+                    "-vf", short_filter,
                     "-c:v", encoder, "-c:a", "aac", short_path
                 ]
                 print(f"DEBUG_LOG [render_all] Creating short clip {idx+1} ({start}s to {end}s, dur={dur}s). Command: {' '.join(cmd)}")
-                short_result = subprocess.run(cmd, capture_output=True, text=True, timeout=120, check=True)
+                short_result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+                if short_result.returncode != 0 and encoder == "h264_nvenc":
+                    print(f"DEBUG_LOG [render_all] Clip {idx+1} GPU render failed. stderr: {short_result.stderr[-3000:]}")
+                    cmd = [
+                        "ffmpeg", "-y", "-ss", f"{start:.3f}", "-t", f"{dur:.3f}",
+                        "-i", input_path,
+                        "-vf", short_filter,
+                        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                        "-c:a", "aac", short_path
+                    ]
+                    print(f"DEBUG_LOG [render_all] Retrying short clip {idx+1} with CPU encoder. Command: {' '.join(cmd)}")
+                    short_result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+                if short_result.returncode != 0:
+                    print(f"DEBUG_LOG [render_all] Clip {idx+1} render FAILED! stderr: {short_result.stderr[-3000:]}")
+                    raise RuntimeError(f"Short clip {idx+1} render failed:\n{short_result.stderr[-3000:]}")
                 print(f"DEBUG_LOG [render_all] Clip {idx+1} creation exit code: {short_result.returncode}")
 
                 if os.path.exists(short_path) and os.path.getsize(short_path) > 1024:
@@ -380,3 +395,4 @@ def dispatch(body: dict, request: fastapi.Request):
         return {"error": f"Unknown step: {step_name}"}
     fn.spawn(body)
     return {"dispatched": True}
+

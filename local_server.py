@@ -14,13 +14,13 @@ from fastapi import FastAPI, BackgroundTasks, Request, HTTPException
 # Import the modal logic directly from your existing apps
 from modal_processing.main import analyze_and_extract, render_all, extract_thumbnail
 from modal_review.main import process_review_job
-from modal_smart_video.main import assemble_video, generate_thumbnails, generate_ai_video, generate_shorts
+from modal_smart_video.main import assemble_video, generate_thumbnails, generate_shorts
 from modal_social_post.main import mix_audio_video
 
 # MODAL_API_SECRET must be set in environment for production
 # Local dev can still pass "dev-secret" header for testing
 
-app = FastAPI(title="AuraDesk Local Processing Server")
+app = FastAPI(title="heyjivu Local Processing Server")
 
 # ── Concurrency Limit ──────────────────────────────────────────────────────────
 gpu_semaphore = asyncio.Semaphore(2)
@@ -91,8 +91,6 @@ async def smart_video_dispatch(body: dict, request: Request, background_tasks: B
                 await asyncio.to_thread(assemble_video.local, body)
             elif step_name == "GeneratingThumbnails":
                 await asyncio.to_thread(generate_thumbnails.local, body)
-            elif step_name == "GeneratingAiVideo":
-                await asyncio.to_thread(generate_ai_video.local, body)
             elif step_name == "GeneratingShorts":
                 await asyncio.to_thread(generate_shorts.local, body)
             else:
@@ -120,5 +118,5 @@ async def social_post_dispatch(body: dict, request: Request, background_tasks: B
 
 if __name__ == "__main__":
     import uvicorn
-    print("Starting AuraDesk Local GPU Server on http://localhost:8000")
+    print("Starting heyjivu Local GPU Server on http://localhost:8000")
     uvicorn.run("local_server:app", host="0.0.0.0", port=8000, reload=False)
