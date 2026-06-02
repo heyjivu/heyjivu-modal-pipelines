@@ -392,6 +392,49 @@ def _save_ai_assets(client, bucket: str, asset_topic_folder: str | None, images:
         saved.append(media_key)
     return saved
 
+def _image_unit_cost(provider: str) -> float:
+    provider_key = (provider or "").strip().lower()
+    if provider_key in ("pexels", "pixabay", "pollinations"):
+        return 0.0
+    if provider_key in ("together", "togetherai"):
+        return 0.0019
+    if provider_key == "gemini":
+        return 0.02
+    if provider_key == "openai":
+        return 0.04
+    if provider_key in ("stability", "stabilityai"):
+        return 0.01
+    return 0.04
+
+def _build_cost_summary(images: list[dict], use_stock: bool) -> list[dict]:
+    if use_stock:
+        return []
+
+    grouped: dict[tuple[str, str], int] = {}
+    for image in images:
+        provider = str(image.get("provider") or "").strip()
+        model = str(image.get("model") or provider or "default").strip()
+        if not provider:
+            continue
+        key = (provider, model)
+        grouped[key] = grouped.get(key, 0) + 1
+
+    summary: list[dict] = []
+    for (provider, model), quantity in grouped.items():
+        rate = _image_unit_cost(provider)
+        cost = round(rate * quantity, 6)
+        if cost <= 0:
+            continue
+        summary.append({
+            "category": "ImageGen",
+            "provider": provider,
+            "model": model,
+            "quantity": quantity,
+            "unit": "images",
+            "costUsd": cost
+        })
+    return summary
+
 def _render_one_minute_video(tmpdir: str, images: list[dict], duration_seconds: int, image_duration: int) -> str:
     encoder = detect_encoder()
     codec, extra_args = ("h264_nvenc", ["-preset", "p4", "-rc", "vbr", "-cq", "23"]) if encoder == "h264_nvenc" else ("libx264", ["-preset", "fast", "-crf", "23"])
@@ -463,6 +506,7 @@ def generate_post_asset_impl(payload: dict):
             "DescriptionKey": description_key,
             "AssetKeysJson": json.dumps(asset_keys)
         }
+        cost_summary = _build_cost_summary(images, use_stock)
 
         with tempfile.TemporaryDirectory() as tmpdir:
             if post_type in ("ShortVideo", "SocialShort"):
@@ -477,7 +521,11 @@ def generate_post_asset_impl(payload: dict):
                 _put_bytes_to_r2(client, bucket, output_key, image["bytes"], image.get("content_type", "image/jpeg"))
                 outputs["ImageKey"] = output_key
 
-        send_callback(callback_url, callback_secret, {"success": True, "outputFilesJson": json.dumps(outputs)})
+        send_callback(callback_url, callback_secret, {
+            "success": True,
+            "outputFilesJson": json.dumps(outputs),
+            "costSummaryJson": json.dumps(cost_summary)
+        })
         print(f"DEBUG_LOG [generate_post_asset] Completed job {job_id}", flush=True)
     except Exception as e:
         import traceback
