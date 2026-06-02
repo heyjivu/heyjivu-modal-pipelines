@@ -255,7 +255,11 @@ def render_all(payload: dict):
                 end = float(seg.get("end", 15))
                 dur = end - start
                 short_path = os.path.join(tmpdir, f"short_{idx+1}.mp4").replace("\\", "/")
-                short_filter = f"scale={sw}:{sh}:force_original_aspect_ratio=increase,crop={sw}:{sh},setsar=1,format=yuv420p"
+                short_filter = (
+                    f"scale={sw}:{sh}:force_original_aspect_ratio=decrease,"
+                    f"pad={sw}:{sh}:(ow-iw)/2:(oh-ih)/2:color=black,"
+                    "setsar=1,format=yuv420p"
+                )
                 cmd = [
                     "ffmpeg", "-y", "-ss", f"{start:.3f}", "-t", f"{dur:.3f}",
                     "-i", input_path,
@@ -392,7 +396,7 @@ def dispatch(body: dict, request: fastapi.Request):
     }
     fn = function_map.get(step_name)
     if fn is None:
-        return {"error": f"Unknown step: {step_name}"}
+        raise fastapi.HTTPException(status_code=400, detail=f"Unknown step: {step_name}")
     fn.spawn(body)
     return {"dispatched": True}
 

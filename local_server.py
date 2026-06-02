@@ -1,5 +1,8 @@
 import os
 import sys
+import base64
+import subprocess
+import tempfile
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -15,7 +18,7 @@ from fastapi import FastAPI, BackgroundTasks, Request, HTTPException
 from modal_processing.main import analyze_and_extract, render_all, extract_thumbnail
 from modal_review.main import process_review_job
 from modal_smart_video.main import assemble_video, generate_thumbnails, generate_shorts
-from modal_social_post.main import mix_audio_video
+from modal_social_post.main import mix_audio_video, generate_post_asset, generate_post_asset_impl
 
 # MODAL_API_SECRET must be set in environment for production
 # Local dev can still pass "dev-secret" header for testing
@@ -51,6 +54,20 @@ async def processing_dispatch(body: dict, request: Request, background_tasks: Ba
     rewrite_callback_url(body)
 
     step_name = body.get("step_name")
+    valid_steps = {
+        "AnalyzeAndExtract",
+        "ExtractAudio",
+        "GetVideoInfo",
+        "RenderAll",
+        "ProcessVideo",
+        "OverlaySubtitles",
+        "GenerateShorts",
+        "CreateShort",
+        "ProcessTo1080p",
+        "ExtractThumbnail",
+    }
+    if step_name not in valid_steps:
+        raise HTTPException(status_code=400, detail=f"Unknown step: {step_name}")
     
     async def run_task():
         async with gpu_semaphore:
@@ -60,11 +77,88 @@ async def processing_dispatch(body: dict, request: Request, background_tasks: Ba
                 await asyncio.to_thread(render_all.local, body)
             elif step_name == "ExtractThumbnail":
                 await asyncio.to_thread(extract_thumbnail.local, body)
-            else:
-                print(f"Unknown step: {step_name}")
 
     background_tasks.add_task(run_task)
     return {"dispatched": True}
+
+@app.post("/processing/dispatch/probe")
+async def processing_probe(body: dict, request: Request):
+    check_auth(request)
+    input_base64 = body.get("input_base64")
+    if not input_base64:
+        raise HTTPException(status_code=400, detail="input_base64 is required")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        input_path = os.path.join(tmpdir, "input.bin")
+        with open(input_path, "wb") as f:
+            f.write(base64.b64decode(input_base64))
+
+        result = subprocess.run(
+            [
+                "ffprobe",
+                "-v", "quiet",
+                "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                input_path,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        try:
+            duration = float((result.stdout or "0").strip())
+        except ValueError:
+            duration = 0.0
+        return {"duration": duration}
+
+@app.post("/processing/dispatch/concat-audio")
+async def processing_concat_audio(body: dict, request: Request):
+    check_auth(request)
+    files = body.get("files") or []
+    if not files:
+        raise HTTPException(status_code=400, detail="files are required")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        concat_path = os.path.join(tmpdir, "concat.txt")
+        output_path = os.path.join(tmpdir, "output.mp3")
+        lines = []
+
+        for index, file_info in enumerate(files):
+            data_base64 = file_info.get("data_base64")
+            file_ext = (file_info.get("file_ext") or "mp3").lstrip(".")
+            if not data_base64:
+                continue
+
+            input_path = os.path.join(tmpdir, f"input_{index}.{file_ext}")
+            with open(input_path, "wb") as f:
+                f.write(base64.b64decode(data_base64))
+            lines.append(f"file '{input_path.replace(chr(92), '/')}'")
+
+        if not lines:
+            raise HTTPException(status_code=400, detail="no valid files supplied")
+
+        with open(concat_path, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines))
+
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-y",
+                "-f", "concat",
+                "-safe", "0",
+                "-i", concat_path,
+                "-c", "copy",
+                output_path,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=180,
+            check=True,
+        )
+
+        with open(output_path, "rb") as f:
+            return {"output_base64": base64.b64encode(f.read()).decode("ascii")}
 
 @app.post("/review/dispatch")
 async def review_dispatch(body: dict, request: Request, background_tasks: BackgroundTasks):
@@ -84,6 +178,9 @@ async def smart_video_dispatch(body: dict, request: Request, background_tasks: B
     rewrite_callback_url(body)
 
     step_name = body.get("step_name")
+    valid_steps = {"AssemblingVideo", "GeneratingThumbnails", "GeneratingShorts"}
+    if step_name not in valid_steps:
+        raise HTTPException(status_code=400, detail=f"Unknown step: {step_name}")
     
     async def run_task():
         async with gpu_semaphore:
@@ -93,8 +190,6 @@ async def smart_video_dispatch(body: dict, request: Request, background_tasks: B
                 await asyncio.to_thread(generate_thumbnails.local, body)
             elif step_name == "GeneratingShorts":
                 await asyncio.to_thread(generate_shorts.local, body)
-            else:
-                print(f"Unknown step: {step_name}")
             
     background_tasks.add_task(run_task)
     return {"dispatched": True}
@@ -105,13 +200,16 @@ async def social_post_dispatch(body: dict, request: Request, background_tasks: B
     rewrite_callback_url(body)
 
     step_name = body.get("step_name")
+    valid_steps = {"MixAudioVideo", "GeneratePostAsset"}
+    if step_name not in valid_steps:
+        raise HTTPException(status_code=400, detail=f"Unknown step: {step_name}")
     
     async def run_task():
         async with gpu_semaphore:
             if step_name == "MixAudioVideo":
                 await asyncio.to_thread(mix_audio_video.local, body)
-            else:
-                print(f"Unknown step: {step_name}")
+            elif step_name == "GeneratePostAsset":
+                await asyncio.to_thread(generate_post_asset_impl, body)
             
     background_tasks.add_task(run_task)
     return {"dispatched": True}

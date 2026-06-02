@@ -22,9 +22,15 @@ def send_callback(callback_url: str, callback_secret: str, payload: dict):
     headers = {}
     if callback_secret:
         headers["X-Modal-Secret"] = callback_secret
-    with_retry(lambda: httpx.post(
-        callback_url,
-        json=payload,
-        headers=headers,
-        timeout=30
-    ))
+
+    def _post():
+        response = httpx.post(
+            callback_url,
+            json=payload,
+            headers=headers,
+            timeout=30
+        )
+        response.raise_for_status()
+        return response
+
+    with_retry(lambda: _post())
