@@ -100,11 +100,6 @@ def _download_audio_key(audio_key, tmpdir, label, client, bucket):
     download_from_r2(client, bucket, audio_key, path)
     return path
 
-@app.function()
-@modal.fastapi_endpoint(method="GET")
-def health():
-    return {"status": "ok", "app": "aura-smart-video-pipeline"}
-
 # ── Step Functions ────────────────────────────────────────────────────────────
 
 @app.function(image=nvidia_image, gpu="A10G", timeout=1200, memory=8192)
