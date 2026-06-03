@@ -34,7 +34,17 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Install Modal CLI
-        run: python -m pip install --upgrade pip modal
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install modal fastapi httpx boto3 google-api-python-client google-auth google-auth-oauthlib
+
+      - name: Validate Modal credentials
+        env:
+          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+        run: |
+          test -n "$MODAL_TOKEN_ID" || { echo "MODAL_TOKEN_ID secret is missing."; exit 1; }
+          test -n "$MODAL_TOKEN_SECRET" || { echo "MODAL_TOKEN_SECRET secret is missing."; exit 1; }
 
       - name: Resolve Modal environment
         id: modal-env
