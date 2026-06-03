@@ -1,0 +1,70 @@
+name: Deploy Modal Pipelines
+
+on:
+  push:
+    branches:
+      - staging
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  deploy:
+    name: Deploy Modal apps
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'main' && 'production' || 'staging' }}
+    steps:
+      - name: Validate branch
+        if: github.ref_name != 'main' && github.ref_name != 'staging'
+        run: |
+          echo "Unsupported deployment branch: ${{ github.ref_name }}"
+          exit 1
+
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install Modal CLI
+        run: python -m pip install --upgrade pip modal
+
+      - name: Resolve Modal environment
+        id: modal-env
+        run: |
+          if [ "${{ github.ref_name }}" = "main" ]; then
+            echo "name=production" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=staging" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Deploy processing pipeline
+        env:
+          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+        run: modal deploy modal_processing/main.py --env ${{ steps.modal-env.outputs.name }}
+
+      - name: Deploy smart video pipeline
+        env:
+          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+        run: modal deploy modal_smart_video/main.py --env ${{ steps.modal-env.outputs.name }}
+
+      - name: Deploy social post pipeline
+        env:
+          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+        run: modal deploy modal_social_post/main.py --env ${{ steps.modal-env.outputs.name }}
+
+      - name: Deploy review pipeline
+        env:
+          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+        run: modal deploy modal_review/main.py --env ${{ steps.modal-env.outputs.name }}
