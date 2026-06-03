@@ -37,8 +37,8 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Install Modal CLI
-        run: python -m pip install --upgrade pip modal
+      - name: Install Modal CLI and local import dependencies
+        run: python -m pip install --upgrade pip modal fastapi boto3 botocore httpx google-auth google-api-python-client
 
       - name: Resolve Modal environment
         id: modal-env
