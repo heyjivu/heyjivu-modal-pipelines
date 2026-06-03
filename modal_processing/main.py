@@ -34,6 +34,11 @@ nvidia_image = (
 
 app = modal.App("aura-processing-pipeline", image=image)
 
+@app.function()
+@modal.fastapi_endpoint(method="GET")
+def health():
+    return {"status": "ok", "app": "aura-processing-pipeline"}
+
 # ── Consolidated Step 1: Analyze + Extract ────────────────────────────────────
 
 @app.function(timeout=300, memory=4096)

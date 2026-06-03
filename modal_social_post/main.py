@@ -36,6 +36,11 @@ nvidia_image = (
 
 app = modal.App("aura-social-post-pipeline", image=image)
 
+@app.function()
+@modal.fastapi_endpoint(method="GET")
+def health():
+    return {"status": "ok", "app": "aura-social-post-pipeline"}
+
 # ── Step Functions ────────────────────────────────────────────────────────────
 
 @app.function(image=nvidia_image, gpu="A10G", timeout=1200, memory=8192)
